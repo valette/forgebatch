@@ -100,29 +100,72 @@ class ParseRunningOutputTest(unittest.TestCase):
     def test_slurm_empty(self):
         self.assertEqual(runner.parse_running_output("", use_slurm=True), [])
 
-    def test_pbs_rows(self):
-        text = ("Job id            Name             User              Time Use S Queue\n"
-                "4711.server       myjob            alice             00:00:02 R batch\n")
+    def test_pbs_rows_from_xml(self):
+        text = ('<?xml version="1.0"?>\n<Data>\n'
+                "  <Job>\n"
+                "    <Job_Id>4711.a-very-long-server-hostname.cec</Job_Id>\n"
+                "    <Job_Name>a_very_long_job_name_that_qstat_would_truncate</Job_Name>\n"
+                "    <Job_Owner>alice@server</Job_Owner>\n"
+                "    <resources_used><walltime>00:00:02</walltime></resources_used>\n"
+                "    <Resource_List><walltime>02:00:00</walltime></Resource_List>\n"
+                "    <job_state>R</job_state>\n"
+                "    <queue>batch</queue>\n"
+                "  </Job>\n</Data>\n")
         rows = runner.parse_running_output(text, use_slurm=False)
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["job_id"], "4711.server")
-        self.assertEqual(rows[0]["name"], "myjob")
+        self.assertEqual(rows[0]["job_id"], "4711.a-very-long-server-hostname.cec")
+        self.assertEqual(rows[0]["name"],
+                         "a_very_long_job_name_that_qstat_would_truncate")
         self.assertEqual(rows[0]["user"], "alice")
         self.assertEqual(rows[0]["state"], "R")
         self.assertEqual(rows[0]["elapsed_sec"], 2)
-        self.assertIsNone(rows[0]["limit_sec"])
+        self.assertEqual(rows[0]["limit_sec"], 2 * 3600)
         self.assertEqual(rows[0]["queue"], "batch")
 
-    def test_pbs_rows_skip_separator(self):
-        text = ("Job ID Name User Time Use S Queue\n"
-                "------------------------- ---------------- --------------- -------- - -----\n"
-                "5093099[].node.cluster.local job_a alice 0 Q short\n"
-                "5094299.node.cluster.local job_b bob 0 H long\n")
+    def test_pbs_queued_job_elapsed_zero_with_limit(self):
+        text = ('<?xml version="1.0"?>\n<Data>\n'
+                "  <Job>\n"
+                "    <Job_Id>5093[].host.example</Job_Id>\n"
+                "    <Job_Name>queued_job</Job_Name>\n"
+                "    <Job_Owner>bob@host</Job_Owner>\n"
+                "    <Resource_List><walltime>00:30:00</walltime></Resource_List>\n"
+                "    <job_state>Q</job_state>\n"
+                "    <queue>short</queue>\n"
+                "  </Job>\n</Data>\n")
         rows = runner.parse_running_output(text, use_slurm=False)
-        self.assertEqual(len(rows), 2)
-        for r in rows:
-            self.assertFalse(r["job_id"].startswith("-"),
-                             "separator line leaked into rows")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["state"], "Q")
+        self.assertEqual(rows[0]["elapsed_sec"], 0)
+        self.assertEqual(rows[0]["limit_sec"], 30 * 60)
+
+    def test_pbs_job_without_walltime_has_no_limit(self):
+        text = ('<?xml version="1.0"?>\n<Data>\n'
+                "  <Job>\n"
+                "    <Job_Id>1.host</Job_Id>\n"
+                "    <Job_Name>held_job</Job_Name>\n"
+                "    <Job_Owner>carol@host</Job_Owner>\n"
+                "    <job_state>H</job_state>\n"
+                "    <queue>long</queue>\n"
+                "  </Job>\n</Data>\n")
+        rows = runner.parse_running_output(text, use_slurm=False)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["elapsed_sec"], 0)
+        self.assertIsNone(rows[0]["limit_sec"])
+
+    def test_pbs_rows_from_xml_no_jobs(self):
+        self.assertEqual(runner.parse_running_output(
+            '<?xml version="1.0"?>\n<Data>\n</Data>\n', use_slurm=False), [])
+
+    def test_pbs_rows_falls_back_to_fixed_columns(self):
+        text = ("Job id            Name             User              Time Use S Queue\n"
+                "5093099[].node.cluster.local job_a alice 0 Q short\n"
+                "------------------------- ---------------- --------------- -------- - -----\n")
+        rows = runner.parse_running_output(text, use_slurm=False)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["job_id"], "5093099[].node.cluster.local")
+        self.assertEqual(rows[0]["name"], "job_a")
+        self.assertEqual(rows[0]["state"], "Q")
+        self.assertEqual(rows[0]["queue"], "short")
 
 
 class RunningHelpersTest(unittest.TestCase):

@@ -13,8 +13,8 @@ from rich.text import Text
 from textual.app import App
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import (Button, Checkbox, DataTable, Header, Input, Label,
-                             Select, Static, TextArea, Tree)
+from textual.widgets import (Button, Checkbox, Header, Input, Label, ListItem,
+                             ListView, Select, Static, TextArea, Tree)
 
 from builder import build_jobs, existing_targets, job_header, parse_import, unknown_tokens, validate_data
 from builder import body_sweep_errors
@@ -22,8 +22,8 @@ import config
 from config import default_settings, scheduler, use_slurm, read_config, write_config
 import diffing
 from fileio import read_text_or_bytes
-from runner import (cancel_cmd, detail_cmd, parse_running_output, progress_cells,
-                    run_submission, state_category)
+from runner import (cancel_cmd, detail_cmd, parse_running_output, run_submission,
+                    state_category)
 from screens import (ConfirmScreen, FileBrowserScreen, HelpScreen, JobDetailsScreen,
                      PromptScreen, PresetsScreen, SubmitLogScreen, TextInputScreen,
                      format_submit_log)
@@ -93,6 +93,7 @@ class ForgeBatchApp(App):
     #running_controls Button { margin: 0 0 0 1; }
     #running_spacer { width: 1fr; }
     #running_list { height: 1fr; border: round $primary; padding: 0 1; }
+    #running_list > ListItem { padding: 0 1; }
     #file_pane_header { height: 3; align: left middle; }
     #file_pane_header Input { width: 1fr; margin: 0 1 0 0; }
     #file_pane_header Button { margin: 0 0 0 1; }
@@ -300,7 +301,7 @@ class ForgeBatchApp(App):
                     yield Button("Details", id="job_details", tooltip="Show full scheduler details for the selected job.")
                     yield Button("Cancel", id="cancel_job", tooltip="Cancel the selected job (scancel/qdel).")
                 yield Label("", id="running_msg")
-                yield DataTable(id="running_list", zebra_stripes=True)
+                yield ListView(id="running_list")
         yield Label("", id="status_bar")
 
     async def on_mount(self):
@@ -555,7 +556,7 @@ class ForgeBatchApp(App):
             self._schedule_autosave()
             return
         if event.input.id == "running_filter":
-            self._render_running()
+            self.call_later(self._render_running)
             return
         if event.input.id == "file_path":
             pane = next((a for a in event.input.ancestors if isinstance(a, FilePane)), None)
@@ -825,7 +826,7 @@ class ForgeBatchApp(App):
 
     async def _refresh_running(self):
         msg = self.query_one("#running_msg", Label)
-        lst = self.query_one("#running_list", DataTable)
+        lst = self.query_one("#running_list", ListView)
         self._running_rows = []
         if scheduler is None:
             msg.update("No scheduler found.")
@@ -835,7 +836,7 @@ class ForgeBatchApp(App):
         if use_slurm:
             cmd = ["squeue", "--format=%i|%u|%j|%T|%M|%l"]
         else:
-            cmd = ["qstat"]
+            cmd = ["qstat", "-x"]
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -847,13 +848,13 @@ class ForgeBatchApp(App):
             return
         text = out.decode(errors="replace")
         self._running_rows = parse_running_output(text, use_slurm)
-        self._render_running()
+        await self._render_running()
 
-    def _render_running(self):
+    MAX_RUNNING_ROWS = 200
+
+    async def _render_running(self):
         msg = self.query_one("#running_msg", Label)
-        table = self.query_one("#running_list", DataTable)
-        if not table.columns:
-            table.add_columns("Job ID", "Name", "State", "Time", "Queue")
+        lst = self.query_one("#running_list", ListView)
         rows = list(getattr(self, "_running_rows", []) or [])
         only_user = self.query_one("#running_only_user", Checkbox).value
         user = self.settings.get("cluster_user") or getpass.getuser()
@@ -865,30 +866,37 @@ class ForgeBatchApp(App):
                     if filt in r["name"].lower() or filt in r["job_id"].lower()]
         sortkey = self.query_one("#running_sort", Select).value or "time"
         rows = sorted(rows, key=lambda r: self._running_sort_key(r, sortkey))
-        self._running_visible = rows
-        table.clear()
-        if rows:
-            for r in rows:
-                table.add_row(self._running_cells(r))
-        if rows:
+        total = len(rows)
+        self._running_total = total
+        self._running_visible = rows[:self.MAX_RUNNING_ROWS]
+        await lst.clear()
+        await lst.extend(
+            [ListItem(Label(self._running_row_text(r))) for r in self._running_visible])
+        if total > self.MAX_RUNNING_ROWS:
+            msg.update(f"Showing first {self.MAX_RUNNING_ROWS} of {total} jobs.")
+            msg.display = True
+        elif rows:
             msg.display = False
         else:
             msg.update("No running jobs.")
             msg.display = True
 
-    def _running_cells(self, r):
+    @staticmethod
+    def _trunc(s, n):
+        s = str(s)
+        return s[:n - 1] + "\u2026" if len(s) > n else s
+
+    def _running_row_text(self, r):
         colors = {"running": "green", "pending": "yellow", "completed": "cyan",
                   "cancelled": "magenta", "failed": "red", "unknown": "default"}
         cat = state_category(r["state"])
-        state = Text(r["state"], style=colors.get(cat, "default"))
-        if r["limit_sec"] and r["elapsed_sec"] is not None:
-            pct, bar = progress_cells(r["elapsed_sec"], r["limit_sec"])
-            time = Text(f"{self._fmt_dur(r['elapsed_sec'])}/{self._fmt_dur(r['limit_sec'])} ")
-            time.append(bar, style="red" if pct == 100 else "green")
-            time.append(f" {pct}%")
-        else:
-            time = Text(self._fmt_dur(r["elapsed_sec"]))
-        return (r["job_id"], r["name"], state, time, r["queue"])
+        line = Text()
+        line.append(f"{self._trunc(r['job_id'], 24):<24} ")
+        line.append(f"{self._trunc(r['name'], 24):<24} ")
+        line.append(f"{self._trunc(r['user'], 12):<12} ")
+        line.append(Text(r["state"], style=colors.get(cat, "default")))
+        line.append(f"  {self._fmt_dur(r['elapsed_sec']):>8}  {r['queue']}")
+        return line
 
     @staticmethod
     def _running_sort_key(r, key):
@@ -912,9 +920,9 @@ class ForgeBatchApp(App):
         return f"{h}:{m:02d}:{s:02d}"
 
     def _selected_job(self):
-        table = self.query_one("#running_list", DataTable)
+        lst = self.query_one("#running_list", ListView)
         rows = getattr(self, "_running_visible", []) or []
-        idx = table.cursor_row
+        idx = lst.index
         if idx is None or not (0 <= idx < len(rows)):
             return None
         return rows[idx]
@@ -972,7 +980,7 @@ class ForgeBatchApp(App):
 
     def on_select_changed(self, event):
         if event.select.id == "running_sort":
-            self._render_running()
+            self.call_later(self._render_running)
 
     def on_checkbox_changed(self, event):
         if event.checkbox.id == "job_body_wrap":
@@ -982,7 +990,7 @@ class ForgeBatchApp(App):
             self._refresh_job_header()
             self._schedule_autosave()
         elif event.checkbox.id == "running_only_user":
-            self._render_running()
+            self.call_later(self._render_running)
 
     def action_quit(self):
         self.exit()

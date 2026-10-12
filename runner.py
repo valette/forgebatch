@@ -5,6 +5,7 @@ complex non-UI logic in the app can be unit-tested in isolation.
 """
 
 import subprocess
+import xml.etree.ElementTree as ET
 
 from builder import dependency_flags, job_chains
 
@@ -151,8 +152,9 @@ def parse_running_output(text, use_slurm):
     The scheduler is queried for all jobs; the caller filters by user if
     desired. Slurm uses a `|`-separated
     `JOBID|USER|NAME|STATE|TIME|TIMELIMIT` format (`squeue --format=%i|%u|%j|%T|%M|%l`);
-    PBS uses whitespace columns `Job id Name User Time Use S Queue` (no limit,
-    so limit_sec is None). Elapsed/limit are parsed into seconds."""
+    PBS uses the XML output of `qstat -x` (see parse_qstat_xml), which preserves
+    the full untruncated Job_Id and Job_Name even when the fixed-width `qstat`
+    listing would cut them. Elapsed/limit are parsed into seconds."""
     lines = [ln for ln in text.splitlines() if ln.strip()]
     records = []
     if use_slurm:
@@ -165,6 +167,9 @@ def parse_running_output(text, use_slurm):
                     "state": parts[3], "elapsed_sec": parse_duration(parts[4]),
                     "limit_sec": limit, "queue": ""})
     else:
+        xml_records = parse_qstat_xml(text)
+        if xml_records is not None:
+            return xml_records
         for ln in lines:
             parts = ln.split()
             if not parts:
@@ -177,4 +182,50 @@ def parse_running_output(text, use_slurm):
                     "job_id": fields[0], "name": fields[1], "user": fields[2],
                     "state": fields[4], "elapsed_sec": parse_duration(fields[3]),
                     "limit_sec": None, "queue": fields[5]})
+    return records
+
+
+def parse_qstat_xml(text):
+    """Parse `qstat -x` XML output into job records.
+
+    PBS/Torque's fixed-column `qstat` listing truncates the Job id and Name
+    columns, which breaks both the display and id-keyed actions (qstat -f /
+    qdel). `qstat -x` emits each job's full attributes as XML, so the complete
+    Job_Id and Job_Name are preserved here.
+
+    Returns the same {job_id, name, user, state, elapsed_sec, limit_sec, queue}
+    record dicts as parse_running_output, or None if the text is not XML (so
+    callers can fall back to the fixed-column listing). elapsed_sec comes from
+    `<resources_used><walltime>` (0 for jobs not yet started) and limit_sec from
+    the requested `<Resource_List><walltime>` (None when unset)."""
+    try:
+        root = ET.fromstring(text)
+    except (ET.ParseError, ValueError):
+        return None
+    records = []
+
+    def child(job, tag):
+        el = job.find(tag)
+        return el.text.strip() if el is not None and el.text else ""
+
+    for job in root.iter("Job"):
+        owner = child(job, "Job_Owner")
+        user = owner.split("@", 1)[0] if owner else ""
+        elapsed = ""
+        for res in job.findall("resources_used"):
+            wt = res.find("walltime")
+            if wt is not None and wt.text:
+                elapsed = wt.text.strip()
+                break
+        limit = ""
+        for res in job.findall("Resource_List"):
+            wt = res.find("walltime")
+            if wt is not None and wt.text:
+                limit = wt.text.strip()
+                break
+        records.append({
+            "job_id": child(job, "Job_Id"), "name": child(job, "Job_Name"),
+            "user": user, "state": child(job, "job_state"),
+            "elapsed_sec": parse_duration(elapsed) if elapsed else 0,
+            "limit_sec": parse_duration(limit), "queue": child(job, "queue")})
     return records

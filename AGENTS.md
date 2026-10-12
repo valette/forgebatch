@@ -145,24 +145,34 @@ that way. `builder.py` must stay **Textual-free** so it is unit-testable.
    reopens the last submission's log.
  10. **Jobs queue pane.** The `Jobs queue` tab (`app._refresh_running`) lists the
     current OS user's active scheduler jobs via `squeue` (SLURM,
-    `--format=%i|%u|%j|%T|%M|%l`, adding the time limit) or `qstat` (PBS), run
-    through `asyncio.create_subprocess_exec` (non-blocking).
-    `runner.parse_running_output` returns **structured records**
+    `--format=%i|%u|%j|%T|%M|%l`, adding the time limit) or `qstat -x` (PBS,
+    XML — see below), run through `asyncio.create_subprocess_exec`
+    (non-blocking). `runner.parse_running_output` returns **structured records**
     (`{job_id, name, user, state, elapsed_sec, limit_sec, queue}`); pure
     helpers `runner.parse_duration`, `runner.state_category`,
-    `runner.progress_cells`, `runner.cancel_cmd`, `runner.detail_cmd` support
-    the view. `app._render_running` applies the "my jobs only" filter, a
-    substring filter (`#running_filter`), and a sort key (`#running_sort`
-    Select), then fills a `DataTable` (`#running_list`) where each row is
-    **colour-coded by state** (green/yellow/cyan/magenta/red) with a **progress
-    bar** (`elapsed/limit`) for SLURM jobs that have a limit (PBS has no limit
-    in `qstat`'s list, so it shows elapsed only). The `DataTable` **virtualizes**
-    — it only mounts/renders the visible rows, so very long job lists stay
-    responsive instead of blocking the event loop (the old `ListView` mounted
-    every row as a real widget and hung on large queues). Cells are added in
-    bulk in `_render_running` via `table.add_row(self._running_cells(r))`, where
-    the state and progress cells are rich `Text` objects carrying the per-state
-    colours. Selection drives **Details**
+    `runner.display_state`, `runner.progress_cells`, `runner.cancel_cmd`,
+    `runner.detail_cmd` support the view. For PBS, `parse_running_output`
+    delegates to `runner.parse_qstat_xml` (`xml.etree.ElementTree`, stdlib) so
+    the full **untruncated** `Job_Id` and `Job_Name` are preserved even though
+    the fixed-width `qstat` listing cuts them (a truncated id would break
+    `qstat -f`/`qdel`); if the text is not XML it falls back to the
+    fixed-column parser. `app._render_running` applies the "my jobs only"
+    filter, a substring filter (`#running_filter`), and a sort key
+    (`#running_sort` Select), then fills a `ListView` (`#running_list`, one real
+    `ListItem` per job, no virtualization) where each row is a single rich
+    `Text` line — `JOBID NAME USER STATE ELAPSED QUEUE` — with the **state
+    colour-coded** by `state_category` (green/yellow/cyan/magenta/red). Long
+    job ids/names are **truncated in display only** (full values stay in the
+    record, so Details/Cancel are unaffected), and the list is **capped at
+    `MAX_RUNNING_ROWS` (200)** jobs with a "Showing first 200 of N jobs"
+    message when there are more, so huge queues render without hanging.
+    `runner.parse_qstat_xml` still fills `limit_sec` from the
+    PBS `<Resource_List><walltime>` request (elapsed from
+    `<resources_used><walltime>`, defaulting to 0 for not-yet-started jobs), so
+    the record is complete. `_render_running` is `async` (it awaits
+    `list.clear()`/`extend(...)` for correct ordering) and is triggered from
+    the filter/sort/my-jobs handlers via `call_later`; `_refresh_running`
+    awaits it directly. Selection (via `list_view.index`) drives **Details**
     (`app._capture` runs `scontrol show job` / `qstat -f`, shown in a
     `JobDetailsScreen`) and **Cancel** (a `ConfirmScreen`, then
     `scancel`/`qdel` via `runner.cancel_cmd`). It is refreshed manually via the

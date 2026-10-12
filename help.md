@@ -51,8 +51,8 @@ A typical session goes like this:
  8. **Follow up.** If any submission fails, a **log modal** opens with the
     details — use it to diagnose rejections. The **Jobs queue** tab lists your
     running scheduler jobs, with each job's **state colour-coded** (green
-    running, yellow pending, red failed/cancelled) and a **progress bar** for
-    SLURM jobs that have a time limit. Filter the list by typing in the
+    running, yellow pending, red failed/cancelled) and long ids truncated for
+    display. Filter the list by typing in the
     **filter** box, re-sort it with the **sort** dropdown, select a row and press
     **Details** to inspect the full scheduler output (`scontrol show job` /
     `qstat -f`), or **Cancel** to stop the selected job (`scancel` / `qdel`).
@@ -214,14 +214,18 @@ reopens the log of the last submission at any time.
 
 The **Jobs queue** tab lists the current OS user's active scheduler jobs,
 showing each job's id, name, state and elapsed time. It queries
-`squeue --format=%i|%u|%j|%T|%M|%l` on SLURM clusters or `qstat` on PBS, then
-filters to the current user client-side when the "my jobs only" checkbox is
-on.
+`squeue --format=%i|%u|%j|%T|%M|%l` on SLURM clusters or `qstat -x` (XML) on
+PBS, then filters to the current user client-side when the "my jobs only"
+checkbox is on. Using `qstat -x` preserves each job's **full, untruncated
+id and name** — the plain `qstat` listing cuts them, which would otherwise
+break `qstat -f` details and `qdel` cancellation on long hostnames.
 
-Each row is **colour-coded by state** (green running, yellow pending, cyan
-completing, magenta cancelled, red failed) and shows a **progress bar**
-(`elapsed / time-limit`) for SLURM jobs that have a time limit; PBS jobs show
-their elapsed time only.
+Each row shows `JOBID NAME USER STATE ELAPSED QUEUE` as a single line,
+**colour-coded by state** (green running, yellow pending, cyan completing,
+magenta cancelled, red failed). Long job ids and names are **truncated for
+display only** (Details and Cancel always use the full id), and the list is
+**capped at 200 jobs** — when a queue has more, a "Showing first 200 of N
+jobs" message notes the rest, keeping the list responsive on huge queues.
 
 Type in the **filter** box to show only rows whose id, name, state or time
 matches the text, and use the **sort** dropdown to order by id, name, state or

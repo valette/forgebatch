@@ -150,7 +150,7 @@ A typical session goes like this:
    the way.
 8. **Follow up.** If any submission fails, a **log modal** opens with the
    details — use it to diagnose rejections. The **Jobs queue** tab lists your
-   running scheduler jobs (colour-coded by state with progress bars; filter,
+   running scheduler jobs (colour-coded by state; filter,
    sort, and inspect or cancel individual jobs). Revisit **Log** in the
    Preview pane to reread the last submission's log at any time.
 9. **Quit.** Press **Ctrl+X** (or **Escape**) to exit; your settings are
@@ -259,12 +259,19 @@ Preview pane reopens the last submission's log anytime.
 
 The **Jobs queue** tab lists the current OS user's active scheduler jobs,
 showing each job's id, name, state and elapsed time. It queries
-`squeue --format=%i|%u|%j|%T|%M|%l` on SLURM clusters or `qstat` on PBS, then
-filters to the current user **client-side** when the "my jobs only" checkbox is
-on. Each row is **colour-coded by state** (green running, yellow pending, cyan
-completing, magenta cancelled, red failed) and shows a **progress bar**
-(`elapsed / time-limit`) for SLURM jobs that have a limit (PBS shows elapsed
-only). Type in the **filter** box to narrow the rows, and use the **sort**
+`squeue --format=%i|%u|%j|%T|%M|%l` on SLURM clusters or `qstat -x` (XML) on
+PBS, then filters to the current user **client-side** when the "my jobs only"
+checkbox is on. The `qstat -x` XML query preserves each job's **full,
+untruncated id and name** (the plain `qstat` listing cuts them, which would
+otherwise break `qstat -f` details and `qdel` cancellation on long hostnames).
+Each row shows `JOBID NAME USER STATE ELAPSED QUEUE` as a single line,
+**colour-coded by state** (green running, yellow pending, cyan completing,
+magenta cancelled, red failed). Long job ids and names are **truncated for
+display only** (Details and Cancel always use the full id), and the list is
+**capped at 200 jobs** — when a queue has more, a "Showing first 200 of N
+jobs" message notes the rest, keeping the list responsive on huge queues.
+Type in the
+**filter** box to narrow the rows, and use the **sort**
 dropdown to order by id, name, state or time. Select a row and press
 **Details** to view the full scheduler output (`scontrol show job` /
 `qstat -f`) or **Cancel** to stop it (`scancel` / `qdel`). Press **Refresh**

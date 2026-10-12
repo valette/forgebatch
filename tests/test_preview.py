@@ -22,8 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 from rich.text import Text  # noqa: E402
 from textual.containers import Horizontal  # noqa: E402
-from textual.coordinate import Coordinate  # noqa: E402
-from textual.widgets import Button, Checkbox, DataTable, Input, Label, Select, Static, TextArea, Tree  # noqa: E402
+from textual.widgets import Button, Checkbox, Input, Label, ListView, Select, Static, TextArea, Tree  # noqa: E402
 
 import config as config_mod  # noqa: E402
 import runner as runner_mod  # noqa: E402
@@ -35,15 +34,12 @@ from diffing import compute_patch  # noqa: E402
 
 
 def _running_items_text(app):
-    """Concatenate the rendered text of every row in the running-job DataTable."""
-    table = app.query_one("#running_list", DataTable)
+    """Concatenate the rendered text of every row in the running-job ListView."""
+    lv = app.query_one("#running_list", ListView)
     out = []
-    for i in range(table.row_count):
-        cells = table.get_row_at(i)
-        row = []
-        for c in cells:
-            row.append(c.plain if isinstance(c, Text) else str(c))
-        out.append(" ".join(row))
+    for item in lv.children:
+        w = item.children[0]
+        out.append(str(w.render()))
     return "\n".join(out)
 
 
@@ -1026,11 +1022,77 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
             app_mod.scheduler = old_scheduler
             asyncio.create_subprocess_exec = old_exec
 
-    async def test_running_list_scrolls_when_many_jobs(self):
+    async def test_running_pane_pbs_uses_qstat_x_all_users(self):
+        import app as app_mod
+        app = ForgeBatchApp()
+        old_slurm = app_mod.use_slurm
+        old_scheduler = app_mod.scheduler
+        old_exec = asyncio.create_subprocess_exec
+        app_mod.use_slurm = False
+        app_mod.scheduler = "pbs"
+        calls = []
+        me = getpass.getuser()
+        other = "someone-else" if me != "someone-else" else "someone-else-2"
+        xml = (
+            '<?xml version="1.0"?>\n<Data>\n'
+            "  <Job>\n"
+            f"    <Job_Id>4711.a-long-hostname.example</Job_Id>\n"
+            f"    <Job_Name>a_very_long_untruncated_job_name</Job_Name>\n"
+            f"    <Job_Owner>{me}@server</Job_Owner>\n"
+            f"    <job_state>R</job_state><queue>batch</queue>\n"
+            "  </Job>\n"
+            "  <Job>\n"
+            f"    <Job_Id>4712.a-long-hostname.example</Job_Id>\n"
+            f"    <Job_Name>other_job</Job_Name>\n"
+            f"    <Job_Owner>{other}@server</Job_Owner>\n"
+            f"    <job_state>Q</job_state><queue>short</queue>\n"
+            "  </Job>\n</Data>\n")
+
+        async def fake_exec(*cmd, **kwargs):
+            calls.append(list(cmd))
+            proc = types.SimpleNamespace()
+
+            async def comm():
+                return (xml.encode(), b"")
+            proc.communicate = comm
+            return proc
+
+        try:
+            asyncio.create_subprocess_exec = fake_exec
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await app._refresh_running()
+                await pilot.pause()
+                box = app.query_one("#running_only_user", Checkbox)
+                self.assertTrue(box.value)
+                records = app._running_rows
+                self.assertEqual(records[0]["job_id"], "4711.a-long-hostname.example")
+                self.assertEqual(records[0]["name"], "a_very_long_untruncated_job_name")
+                text = _running_items_text(app)
+                self.assertIn("4711.a-long-hostname", text)
+                self.assertNotIn("4711.a-long-hostname.example", text)
+                self.assertIn("a_very_long_untruncat", text)
+                self.assertNotIn("a_very_long_untruncated_job_name", text)
+                self.assertIn(me, text)
+                self.assertIn("R", text)
+                self.assertNotIn("RUNNING", text)
+                self.assertNotIn("4712", text)
+                self.assertEqual(calls, [["qstat", "-x"]])
+                box.value = False
+                await pilot.pause()
+                text = _running_items_text(app)
+                self.assertIn("4712", text)
+                self.assertIn("other_job", text)
+        finally:
+            app_mod.use_slurm = old_slurm
+            app_mod.scheduler = old_scheduler
+            asyncio.create_subprocess_exec = old_exec
+
+    async def test_running_list_capped_when_many_jobs(self):
         import types
         import asyncio
         import getpass
-        from textual.widgets import Static
+        from textual.widgets import Label
         import app as app_mod
         app = ForgeBatchApp()
         old_slurm = app_mod.use_slurm
@@ -1062,11 +1124,12 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
                 box = app.query_one("#running_only_user", Checkbox)
                 box.value = False
                 await pilot.pause()
-                table = app.query_one("#running_list", DataTable)
-                self.assertGreater(table.row_count, 0)
-                self.assertTrue(table.is_scrollable)
-                self.assertGreater(table.virtual_size.height, table.region.height)
-                self.assertLess(len(table._nodes), table.row_count)
+                lv = app.query_one("#running_list", ListView)
+                self.assertEqual(len(lv.children), app.MAX_RUNNING_ROWS)
+                self.assertEqual(app._running_total, 300)
+                self.assertTrue(lv.is_scrollable)
+                msg = str(app.query_one("#running_msg", Label).render())
+                self.assertIn(f"first {app.MAX_RUNNING_ROWS} of 300", msg)
         finally:
             app_mod.use_slurm = old_slurm
             app_mod.scheduler = old_scheduler
@@ -1104,11 +1167,11 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
         app._running_rows = self._seed_running()
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            app._render_running()
+            await app._render_running()
             await pilot.pause()
             filt = app.query_one("#running_filter", Input)
             filt.value = "ga"
-            app._render_running()
+            await app._render_running()
             await pilot.pause()
             text = _running_items_text(app)
             self.assertIn("gamma", text)
@@ -1122,39 +1185,68 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             sort = app.query_one("#running_sort", Select)
             sort.value = "name"
-            app._render_running()
+            await app._render_running()
             await pilot.pause()
             text = _running_items_text(app)
             self.assertLess(text.index("alpha"), text.index("beta"))
             self.assertLess(text.index("beta"), text.index("gamma"))
             sort.value = "time"
-            app._render_running()
+            await app._render_running()
             await pilot.pause()
             text = _running_items_text(app)
             self.assertLess(text.index("beta"), text.index("alpha"))
             self.assertLess(text.index("alpha"), text.index("gamma"))
 
-    async def test_running_row_shows_progress_and_queue(self):
+    async def test_running_row_shows_state_and_queue(self):
+        import app as app_mod
         app = ForgeBatchApp()
+        old_slurm = app_mod.use_slurm
+        app_mod.use_slurm = True
         app._running_rows = self._seed_running()
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            app._render_running()
-            await pilot.pause()
-            text = _running_items_text(app)
-            self.assertIn("10%", text)
-            self.assertIn("batch", text)
+        try:
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await app._render_running()
+                await pilot.pause()
+                text = _running_items_text(app)
+                self.assertIn("RUNNING", text)
+                self.assertIn("batch", text)
+        finally:
+            app_mod.use_slurm = old_slurm
+
+    async def test_running_pbs_row_is_concise(self):
+        import app as app_mod
+        app = ForgeBatchApp()
+        old_slurm = app_mod.use_slurm
+        app_mod.use_slurm = False
+        u = getpass.getuser()
+        app._running_rows = [
+            {"job_id": "5094.host.example", "name": "pbs_run",
+             "user": u, "state": "R", "elapsed_sec": 1800, "limit_sec": 3600,
+             "queue": "short"},
+        ]
+        try:
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                await app._render_running()
+                await pilot.pause()
+                text = _running_items_text(app)
+                self.assertIn("pbs_run", text)
+                self.assertIn(u, text)
+                self.assertNotIn("50%", text)
+        finally:
+            app_mod.use_slurm = old_slurm
 
     async def test_running_cancel_calls_scancel(self):
         app = ForgeBatchApp()
         app._running_rows = self._seed_running()
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            app._render_running()
+            await app._render_running()
             await pilot.pause()
-            table = app.query_one("#running_list", DataTable)
-            table.focus()
-            table.cursor_coordinate = Coordinate(0, 0)
+            lv = app.query_one("#running_list", ListView)
+            lv.focus()
+            lv.index = 0
             rec = app._selected_job()
             self.assertIsNotNone(rec)
             calls = []
@@ -1175,11 +1267,11 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
         app._running_rows = self._seed_running()
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            app._render_running()
+            await app._render_running()
             await pilot.pause()
-            table = app.query_one("#running_list", DataTable)
-            table.focus()
-            table.cursor_coordinate = Coordinate(2, 0)
+            lv = app.query_one("#running_list", ListView)
+            lv.focus()
+            lv.index = 2
             rec = app._selected_job()
             self.assertEqual(rec["job_id"], "3")
 
