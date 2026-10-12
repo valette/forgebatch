@@ -1,0 +1,93 @@
+{
+  "last": {
+    "job_root": "/home/user/forgebatch-demo/jobs",
+    "job_name": "sweep_demo",
+    "single_job": false,
+    "email": "user@example.com",
+    "mail_type": [
+      "ALL"
+    ],
+    "parallelism_limit": "4",
+    "job_body": "cd {{JOBDIR}}\nmodule load python/3.11\npython train.py --lr [[0.001, 0.01, 0.1]] --model resnet\necho \"JOB {{JOBID}} finished\"\n",
+    "included_files": [
+      {
+        "path": "/home/user/forgebatch-demo/specs.json",
+        "mode": "copy"
+      },
+      {
+        "path": "/home/user/forgebatch-demo/train.py",
+        "mode": "copy"
+      },
+      {
+        "path": "/home/user/forgebatch-demo/weights.pt",
+        "mode": "symlink"
+      }
+    ],
+    "included_dirs": [
+      {
+        "path": "/home/user/forgebatch-demo/data",
+        "mode": "symlink"
+      }
+    ],
+    "file_edits": {
+      "/home/user/forgebatch-demo/specs.json": "--- a/source\n+++ b/edit\n@@ -1,4 +1,4 @@\n-  \"epochs\": 10,\n+  \"epochs\": [10, 20, 50],\n"
+    },
+    "cluster_user": "demo"
+  },
+  "selected_preset": "",
+  "presets": {
+    "small": {
+      "job_root": "/home/user/forgebatch-demo/jobs",
+      "job_name": "small_run",
+      "single_job": false,
+      "email": "user@example.com",
+      "mail_type": [
+        "ALL"
+      ],
+      "parallelism_limit": "1",
+      "job_body": "cd {{JOBDIR}}\npython train.py --epochs 10\n",
+      "included_files": [
+        {
+          "path": "/home/user/forgebatch-demo/specs.json",
+          "mode": "copy"
+        }
+      ],
+      "included_dirs": [],
+      "file_edits": {},
+      "cluster_user": "demo"
+    },
+    "large": {
+      "job_root": "/home/user/forgebatch-demo/jobs",
+      "job_name": "large_run",
+      "single_job": false,
+      "email": "user@example.com",
+      "mail_type": [
+        "ALL"
+      ],
+      "parallelism_limit": "8",
+      "job_body": "cd {{JOBDIR}}\npython train.py --lr [[0.001, 0.01]] --batch [[16, 32]]\n",
+      "included_files": [
+        {
+          "path": "/home/user/forgebatch-demo/specs.json",
+          "mode": "copy"
+        },
+        {
+          "path": "/home/user/forgebatch-demo/train.py",
+          "mode": "copy"
+        },
+        {
+          "path": "/home/user/forgebatch-demo/weights.pt",
+          "mode": "symlink"
+        }
+      ],
+      "included_dirs": [
+        {
+          "path": "/home/user/forgebatch-demo/data",
+          "mode": "copy"
+        }
+      ],
+      "file_edits": {},
+      "cluster_user": "demo"
+    }
+  }
+}
