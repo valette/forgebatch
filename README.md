@@ -1,9 +1,7 @@
 # forgebatch
 
 An interactive Textual TUI that generates SLURM/PBS job directories for
-HPC scheduler experiments. It is a standalone reimplementation of the earlier
-`submit_gui.py` / `submit_tui.py` tools: more general (arbitrary included
-files, not just the experiment config) and self-contained.
+HPC scheduler experiments.
 
 ## What it does
 
