@@ -566,8 +566,8 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
             editor = app.query_one("#job_body_editor", TextArea)
             self.assertGreaterEqual(editor.region.height, 6)
 
-    async def test_slurm_mail_type_checkboxes_and_import_roundtrip(self):
-        from textual.widgets import Static, Checkbox
+    async def test_slurm_mail_type_input_and_import_roundtrip(self):
+        from textual.widgets import Static
         import app as app_mod
         app = ForgeBatchApp()
         old_slurm = app_mod.use_slurm
@@ -575,10 +575,8 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
         try:
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
-                self.assertTrue(app.query_one("#mail_type_ALL", Checkbox).value)
-                app.query_one("#mail_type_ALL", Checkbox).value = False
-                app.query_one("#mail_type_BEGIN", Checkbox).value = True
-                app.query_one("#mail_type_FAIL", Checkbox).value = True
+                self.assertEqual(app.query_one("#mail_type_input", Input).value, "ALL")
+                app.query_one("#mail_type_input", Input).value = "BEGIN, FAIL"
                 await pilot.pause()
                 app.collect_settings()
                 self.assertEqual(app.settings["mail_type"], ["BEGIN", "FAIL"])
@@ -588,14 +586,13 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(mail_types, ["END", "FAIL"])
                 app._apply_import(email, mail_types, body, "test")
                 await pilot.pause()
-                self.assertTrue(app.query_one("#mail_type_END", Checkbox).value)
-                self.assertTrue(app.query_one("#mail_type_FAIL", Checkbox).value)
-                self.assertFalse(app.query_one("#mail_type_ALL", Checkbox).value)
+                self.assertEqual(app.query_one("#mail_type_input", Input).value,
+                                 "END, FAIL")
         finally:
             app_mod.use_slurm = old_slurm
 
-    async def test_mail_type_checkbox_updates_scheduler_header(self):
-        from textual.widgets import Static, Checkbox
+    async def test_mail_type_input_updates_scheduler_header(self):
+        from textual.widgets import Static
         import app as app_mod
         app = ForgeBatchApp()
         old_slurm = app_mod.use_slurm
@@ -608,9 +605,7 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause()
                 header = app.query_one("#job_header_view", TextArea).text
                 self.assertIn("#SBATCH --mail-type=ALL", header)
-                app.query_one("#mail_type_ALL", Checkbox).value = False
-                app.query_one("#mail_type_BEGIN", Checkbox).value = True
-                app.query_one("#mail_type_FAIL", Checkbox).value = True
+                app.query_one("#mail_type_input", Input).value = "BEGIN, FAIL"
                 await pilot.pause()
                 header = app.query_one("#job_header_view", TextArea).text
                 self.assertIn("#SBATCH --mail-type=BEGIN,FAIL", header)
@@ -771,6 +766,31 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(app.query_one("#job_root", Input).has_class("invalid"))
             self.assertIn("jobs root is not set",
                           str(app.query_one("#status_bar", Label).render()))
+
+    async def test_create_job_root_button(self):
+        app = ForgeBatchApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            btn = app.query_one("#create_job_root", Button)
+            # existing directory -> hidden
+            app.query_one("#job_root", Input).value = self.tmp
+            await pilot.pause()
+            self.assertFalse(btn.display)
+            # empty field -> hidden
+            app.query_one("#job_root", Input).value = ""
+            await pilot.pause()
+            self.assertFalse(btn.display)
+            # missing directory -> shown
+            missing = os.path.join(self.tmp, "brand-new")
+            app.query_one("#job_root", Input).value = missing
+            await pilot.pause()
+            self.assertTrue(btn.display)
+            self.assertFalse(os.path.isdir(missing))
+            # clicking Create creates it and hides the button
+            await app.on_button_pressed(type("E", (), {"button": btn})())
+            await pilot.pause()
+            self.assertTrue(os.path.isdir(missing))
+            self.assertFalse(btn.display)
 
     async def test_help_button_opens_help_screen(self):
         from screens import HelpScreen

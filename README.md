@@ -82,7 +82,12 @@ Three tabs:
   scheduler header followed by an editable **job body** pane (the content
   placed after the header). **Import job from file** / **Import job from
   text** fill the body (and email) from an existing scheduler job; **Clear**
-  resets the job root, email and body.
+  resets the job root, email and body. If the **job root** directory does not
+  exist yet, a **Create** button appears next to the field to create it (and is
+  hidden once it exists). The SLURM email-notification type is a
+  comma-separated `--mail-type` field (e.g. `ALL` or `BEGIN,FAIL`; events
+  `ALL, NONE, BEGIN, END, FAIL, REQUEUE, TIME_LIMIT`), used when the email
+  address is set.
 - **Files** — `Add file` to include a path; each row has `Browse`, `Edit`
   and `Remove` buttons. Each included file is copied into the generated job
   directory. Files are editable inline (with an optional **show diff**
@@ -99,7 +104,9 @@ A visible action bar below the header provides the main actions: **Help**,
 **Preview**, **Write & Submit**, and **Presets**. The **Help** button opens
 the in-app help (the same content as `help.md`). Settings and inline edits are
 **autosaved** (and can be forced with **Ctrl+S**); press **Escape** or
-**Ctrl+X** to quit (**Ctrl+X** works from any dialog).
+**Ctrl+X** to quit (**Ctrl+X** works from any dialog). To paste text (e.g.
+into the job body or the **Import job from text** dialog), use **Shift+Ctrl+V**
+— the usual **Ctrl+V** does not work in the terminal.
 
 ## Typical workflow
 

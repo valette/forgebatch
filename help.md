@@ -4,7 +4,9 @@ An interactive terminal application that generates **SLURM/PBS job
 directories** for HPC scheduler experiments. Everything is driven by the
 on-screen buttons; the keyboard shortcuts are **Escape** (close a dialog, or
 quit the app on the main screen), **Enter** (confirm a dialog), **Ctrl+S**
-(save immediately) and **Ctrl+X** (quit the app from anywhere).
+(save immediately) and **Ctrl+X** (quit the app from anywhere). To paste text
+(e.g. into the job body or the **Import job from text** dialog), use
+**Shift+Ctrl+V** — the usual **Ctrl+V** does not work in the terminal.
 
 ## Typical workflow
 
@@ -63,6 +65,9 @@ A typical session goes like this:
 
 - **Job root directory** — base directory under which generated job
   subdirectories are written. Each job gets its own numbered subdirectory.
+  When the entered directory does not exist yet, a **Create** button appears
+  next to the field — press it to create the directory (and any missing
+  parents). The button is hidden once the directory exists.
 - **Job name** — optional. Replaces the root-basename prefix in the scheduler
   `--job-name` / `-N` field. In multi-job mode the per-job id is appended
   (`<job name>-<id>`); leave empty to use the root's basename as the prefix.
@@ -74,6 +79,10 @@ A typical session goes like this:
 - **Email (job notifications)** — full address (e.g. `you@example.com`)
   used in the scheduler `--mail-user` / `-M` header field. Leave empty to omit
   the mail lines from the header.
+- **Email notifications (SLURM)** — a comma-separated `--mail-type` list
+  (e.g. `ALL`, or `BEGIN,FAIL`) used when the email address is set; leave
+  empty to emit `NONE`. Valid events: `ALL, NONE, BEGIN, END, FAIL, REQUEUE,
+  TIME_LIMIT`.
 - **Scheduler header** — generated from your settings; shown read-only so you
   can verify it before writing.
 - **Job body** — the content placed right after the scheduler header (any

@@ -61,12 +61,10 @@ class ForgeBatchApp(App):
     #tab_jobs, #tab_preview { max-width: 18; overflow: hidden; text-overflow: ellipsis; }
     #tab_jobs.active, #tab_preview.active { background: $accent; color: $text; }
     #pane_settings { height: 1fr; overflow-y: auto; }
-    #settings_grid { height: auto; padding: 1 2; }
+    #settings_grid { height: auto; padding: 1 0 1 2; }
     #settings_grid .srow { height: 3; align: left middle; }
     #settings_grid .srow Label { width: 20; height: 100%; content-align: center middle; }
     #settings_grid .srow Input { width: 1fr; margin: 0 0 0 1; }
-    #mail_type_box { width: 1fr; margin: 0 0 0 1; }
-    #mail_type_box Checkbox { margin: 0 2 0 0; min-width: 0; }
     #settings_grid .srow #single_job { min-width: 0; margin: 0 0 0 1; }
     #settings_grid #job_root.invalid { border: round $error; }
     #settings_grid .srow Button { width: auto; min-width: 8; margin: 0 0 0 1; }
@@ -93,6 +91,7 @@ class ForgeBatchApp(App):
     #running_controls Input { width: 18; margin: 0 1 0 0; }
     #running_controls Select { width: 12; margin: 0 1 0 0; }
     #running_controls Button { margin: 0 0 0 1; }
+    #running_spacer { width: 1fr; }
     #running_list { height: 1fr; border: round $primary; padding: 0 1; }
     #file_pane_header { height: 3; align: left middle; }
     #file_pane_header Input { width: 1fr; margin: 0 1 0 0; }
@@ -117,6 +116,7 @@ class ForgeBatchApp(App):
     #preview_actions Button { margin: 0 1 0 0; }
     #preview_actions Input { width: 14; margin: 0 0 0 1; }
     #preview_actions Label { height: 100%; content-align: left middle; margin: 0 1 0 0; }
+    #preview_spacer { width: 1fr; }
     """
 
     def __init__(self, preset=None):
@@ -147,8 +147,8 @@ class ForgeBatchApp(App):
     def _collect_mail_type(self):
         if not use_slurm:
             return []
-        return [o for o in MAIL_TYPE_OPTIONS
-                if self.query_one(f"#mail_type_{o}", Checkbox).value]
+        text = self.query_one("#mail_type_input", Input).value
+        return [t.strip() for t in text.split(",") if t.strip()]
 
     def apply_settings(self, s):
         """Apply a settings dict to the UI. Migrates legacy `user` -> email."""
@@ -256,6 +256,7 @@ class ForgeBatchApp(App):
                     with Horizontal(classes="srow"):
                         yield Label("Jobs root directory")
                         yield Input(self.settings.get("job_root", ""), id="job_root", tooltip="Root directory where generated job subdirectories are written (or, in single-job mode, the directory the one job is written into directly).")
+                        yield Button("Create", id="create_job_root", tooltip="Create the jobs root directory (shown only when the directory does not exist yet).")
                     with Horizontal(classes="srow"):
                         yield Label("Job name")
                         yield Input(self.settings.get("job_name", ""), id="job_name", tooltip="Optional job name: replaces the root-name prefix in the scheduler --job-name / -N. Empty keeps the default (root basename; single-job mode falls back to the root basename).")
@@ -266,9 +267,7 @@ class ForgeBatchApp(App):
                     if use_slurm:
                         with Horizontal(classes="srow"):
                             yield Label("Email notifications (SLURM)")
-                            with Horizontal(id="mail_type_box"):
-                                for opt in MAIL_TYPE_OPTIONS:
-                                    yield Checkbox(opt, id=f"mail_type_{opt}", value=(opt in (self.settings.get("mail_type") or ["ALL"])), tooltip=f"SLURM --mail-type event: {opt}.")
+                            yield Input(", ".join(self.settings.get("mail_type") or ["ALL"]), id="mail_type_input", tooltip="Comma-separated SLURM --mail-type events (e.g. ALL, or BEGIN,FAIL). Options: ALL, NONE, BEGIN, END, FAIL, REQUEUE, TIME_LIMIT.")
                 yield Label("Scheduler header (read-only)", classes="job_pane_label")
                 yield TextArea("", id="job_header_view", read_only=True, tooltip="Scheduler header generated from settings; read-only.")
                 with Horizontal(classes="job_pane_label_row"):
@@ -285,6 +284,7 @@ class ForgeBatchApp(App):
                 with Horizontal(id="preview_actions"):
                     yield Label("Max parallel jobs", id="parallel_label")
                     yield Input(self.settings.get("parallelism_limit", "0"), id="parallel", placeholder="parallelism limit", tooltip="Max jobs run in parallel: 0 = no limit (all parallel), 1 = all in series, N = N parallel chains.")
+                    yield Static("", id="preview_spacer")
                     yield Button("Write & Submit", id="submit", tooltip="Write job directories and submit them to the scheduler.")
                     yield Button("Log", id="log", tooltip="Show the log of the last submission.")
             with Vertical(id="pane_running"):
@@ -296,6 +296,7 @@ class ForgeBatchApp(App):
                     yield Input(placeholder="filter name/id", id="running_filter", tooltip="Filter jobs by name or id (substring).")
                     yield Select([("id", "id"), ("name", "name"), ("state", "state"), ("time", "time")],
                                  id="running_sort", value="time", tooltip="Sort order for the job list.")
+                    yield Static("", id="running_spacer")
                     yield Button("Details", id="job_details", tooltip="Show full scheduler details for the selected job.")
                     yield Button("Cancel", id="cancel_job", tooltip="Cancel the selected job (scancel/qdel).")
                 yield Label("", id="running_msg")
@@ -454,6 +455,8 @@ class ForgeBatchApp(App):
                              callback=self._import_job_text)
         elif bid == "clear_job":
             self._clear_job_fields()
+        elif bid == "create_job_root":
+            self._create_job_root()
 
     def _browse_result(self, pane, path):
         if path:
@@ -494,8 +497,7 @@ class ForgeBatchApp(App):
         self._set_status("Imported job from " + source)
 
     def _set_mail_type(self, mail_types):
-        for opt in MAIL_TYPE_OPTIONS:
-            self.query_one(f"#mail_type_{opt}", Checkbox).value = opt in mail_types
+        self.query_one("#mail_type_input", Input).value = ", ".join(mail_types or [])
 
     def _clear_job_fields(self):
         self.settings["job_root"] = os.getcwd()
@@ -508,6 +510,20 @@ class ForgeBatchApp(App):
         self._update_token_warning()
         self._schedule_autosave()
         self._set_status("Cleared job fields")
+
+    def _create_job_root(self):
+        root = (self.settings.get("job_root") or "").strip()
+        if not root:
+            return
+        try:
+            os.makedirs(root, exist_ok=True)
+        except OSError as e:
+            self._set_status(f"Could not create jobs root {root}: {e}")
+            return
+        self._update_token_warning()
+        self._refresh_job_header()
+        self._schedule_autosave()
+        self._set_status(f"Created jobs root directory: {root}")
 
     async def _remove(self, pane):
         if pane is None:
@@ -562,6 +578,8 @@ class ForgeBatchApp(App):
                 self.settings["job_name"] = event.input.value.strip()
             elif event.input.id == "email":
                 self.settings["email"] = event.input.value.strip()
+            elif event.input.id == "mail_type_input":
+                self.settings["mail_type"] = self._collect_mail_type()
             self._refresh_job_header()
             self._update_token_warning()
             self._schedule_autosave()
@@ -587,6 +605,7 @@ class ForgeBatchApp(App):
         """Flag a missing/empty jobs root: red field + message for the status bar."""
         root = (self.settings.get("job_root") or "").strip()
         inp = self.query_one("#job_root", Input)
+        self.query_one("#create_job_root", Button).display = bool(root) and not os.path.isdir(root)
         if not root:
             inp.add_class("invalid")
             return "jobs root is not set"
@@ -964,10 +983,6 @@ class ForgeBatchApp(App):
             self._schedule_autosave()
         elif event.checkbox.id == "running_only_user":
             self._render_running()
-        elif event.checkbox.id and event.checkbox.id.startswith("mail_type_"):
-            self.settings["mail_type"] = self._collect_mail_type()
-            self._refresh_job_header()
-            self._schedule_autosave()
 
     def action_quit(self):
         self.exit()
