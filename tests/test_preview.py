@@ -949,7 +949,7 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_submit_log_modal_renders(self):
         from screens import SubmitLogScreen, format_submit_log
-        from textual.widgets import Markdown
+        from textual.widgets import Static
         log = [
             {"label": "job-a", "job_file": "/tmp/job.slurm",
              "cmd": ["sbatch", "--parsable", "/tmp/job.slurm"],
@@ -966,9 +966,10 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             app.push_screen(SubmitLogScreen(log))
             await pilot.pause()
-            md = app.screen.query_one(Markdown)
-            self.assertIn("FAIL", md.source)
-            self.assertIn("error: invalid node name", md.source)
+            st = app.screen.query_one("#submit_log_text", Static)
+            rendered = str(st.render())
+            self.assertIn("FAIL", rendered)
+            self.assertIn("error: invalid node name", rendered)
             app.screen.dismiss(None)
             await pilot.pause()
 

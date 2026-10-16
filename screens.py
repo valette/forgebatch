@@ -401,34 +401,31 @@ class PresetsScreen(PanelModal):
 
 
 def format_submit_log(log):
-    """Render the submission log (list of per-job dicts) as readable text.
-    Used for both the log dialog and the on-disk submit.log."""
+    """Render the submission log (list of per-job dicts) as plain, wrapping
+    text. Used for both the log dialog and the on-disk submit.log."""
     lines = []
     ok = sum(1 for e in log if e.get("ok"))
     failed = len(log) - ok
-    lines.append(f"# Submission log - {ok} submitted, {failed} failed")
+    lines.append(f"Submission log - {ok} submitted, {failed} failed")
     lines.append("")
     for i, e in enumerate(log, start=1):
         status = "OK" if e.get("ok") else "FAIL"
-        lines.append(f"## Job {i} - {status}  {e.get('label', '')}")
+        lines.append(f"Job {i} - {status}  {e.get('label', '')}")
         lines.append("")
-        lines.append(f"- file: `{e.get('job_file', '')}`")
+        lines.append(f"  file: {e.get('job_file', '')}")
         cmd = " ".join(e.get("cmd") or [])
         if cmd:
-            lines.append(f"- command: `{cmd}`")
+            lines.append(f"  command: {cmd}")
         rc = e.get("returncode")
-        lines.append(f"- exit code: {rc if rc is not None else 'n/a'}")
+        lines.append(f"  exit code: {rc if rc is not None else 'n/a'}")
         if e.get("error"):
-            lines.append(f"- error: `{e['error']}`")
+            lines.append(f"  error: {e['error']}")
         lines.append("")
         for name in ("stdout", "stderr"):
             txt = (e.get(name) or "").strip()
             if txt:
-                lines.append(f"### {name}")
-                lines.append("")
-                lines.append("```")
-                lines.extend(txt.splitlines())
-                lines.append("```")
+                lines.append(f"  {name}:")
+                lines.extend("    " + line for line in txt.splitlines())
                 lines.append("")
     return "\n".join(lines)
 
@@ -448,7 +445,7 @@ class SubmitLogScreen(PanelModal):
         self._log = list(log)
 
     def body(self):
-        yield Markdown(format_submit_log(self._log))
+        yield Static(format_submit_log(self._log), markup=False, id="submit_log_text")
 
     def footer(self):
         yield Button("Close", id="close_log", tooltip="Close (or press Escape).")
