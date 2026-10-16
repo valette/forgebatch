@@ -38,7 +38,7 @@ def run_submission(variants, root, parallelism, scheduler, use_slurm, run=None):
                  "cmd": list(cmd), "returncode": None, "stdout": "",
                  "stderr": "", "error": "", "ok": False}
         try:
-            proc = run(cmd, cwd=root, capture_output=True, text=True)
+            proc = run(cmd, cwd=v["job_path"], capture_output=True, text=True)
         except OSError as e:
             entry["error"] = str(e)
             log.append(entry)

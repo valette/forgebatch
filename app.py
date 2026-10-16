@@ -505,8 +505,9 @@ class ForgeBatchApp(App):
         self.settings["email"] = ""
         self.settings["mail_type"] = ["ALL"]
         self._set_settings_inputs(self.settings)
-        self.settings["job_body"] = "cd {{JOBDIR}}\n"
-        self.query_one("#job_body_editor", TextArea).load_text("cd {{JOBDIR}}\n")
+        self.settings["job_body"] = "# cd {{JOBDIR}}\n# echo {{JOBID}}\n"
+        self.query_one("#job_body_editor", TextArea).load_text(
+            "# cd {{JOBDIR}}\n# echo {{JOBID}}\n")
         self._refresh_job_header()
         self._update_token_warning()
         self._schedule_autosave()

@@ -1523,9 +1523,9 @@ class PreviewSubstitutionTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(app.settings["job_root"], os.getcwd())
             self.assertEqual(app.settings["email"], "")
-            self.assertEqual(app.settings["job_body"], "cd {{JOBDIR}}\n")
+            self.assertEqual(app.settings["job_body"], "# cd {{JOBDIR}}\n# echo {{JOBID}}\n")
             self.assertEqual(app.query_one("#job_body_editor", TextArea).text,
-                             "cd {{JOBDIR}}\n")
+                             "# cd {{JOBDIR}}\n# echo {{JOBID}}\n")
             self.assertEqual(app.query_one("#email", Input).value, "")
 
     async def test_top_bar_right_side_tabs(self):

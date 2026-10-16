@@ -37,20 +37,22 @@ class RunSubmissionTest(unittest.TestCase):
 
         def fake_run(cmd, **kwargs):
             calls.append(list(cmd))
+            cwds.append(kwargs.get("cwd"))
             counter["id"] += 1
             returned.append(str(counter["id"]))
             return types.SimpleNamespace(
                 returncode=0, stdout=str(counter["id"]) + "\n", stderr="")
 
+        cwds = []
         log, submitted, failed = runner.run_submission(
             variants, self.tmp, 1, "slurm", True, run=fake_run)
 
         self.assertEqual((submitted, failed), (3, 0))
-        self.assertEqual(len(calls), 3)
         self.assertEqual([a for a in calls[0] if a.startswith("--dependency=")], [])
         deps = [a for a in calls[1] if a.startswith("--dependency=")]
         self.assertEqual(deps, ["--dependency=afterok:" + returned[0]])
         self.assertTrue(all("--parsable" in c for c in calls))
+        self.assertEqual(cwds, [v["job_path"] for v in variants])
 
     def test_failure_recorded_without_raising(self):
         variants = [_variant(0), _variant(1)]
